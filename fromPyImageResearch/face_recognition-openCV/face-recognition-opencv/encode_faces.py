@@ -1,5 +1,8 @@
 # USAGE
-# python encode_faces.py --dataset dataset --encodings encodings.pickle
+# When encoding on laptop, desktop, or GPU (slower, more accurate):
+# python encode_faces.py --dataset dataset --encodings encodings.pickle --detection-method cnn
+# When encoding on Raspberry Pi (faster, more accurate):
+# python encode_faces.py --dataset dataset --encodings encodings.pickle --detection-method hog
 
 # import the necessary packages
 from imutils import paths
@@ -9,14 +12,24 @@ import pickle
 import cv2
 import os
 
+import time
+
+
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--dataset", required=True,
 	help="path to input directory of faces + images")
+
+
 ap.add_argument("-e", "--encodings", required=True,
 	help="path to serialized db of facial encodings")
-ap.add_argument("-d", "--detection-method", type=str, default="cnn",
+
+ap.add_argument("-d", "--detection-method", type=str, default="hog",
 	help="face detection model to use: either `hog` or `cnn`")
+
+ap.add_argument("-t", "--time", nargs='?', const=1, type=int, default=0,
+	help="enable/disable elasped time message")
+
 args = vars(ap.parse_args())
 
 # grab the paths to the input images in our dataset
@@ -27,25 +40,43 @@ imagePaths = list(paths.list_images(args["dataset"]))
 knownEncodings = []
 knownNames = []
 
+tmStart = time.time()	#-- time of begin test
+
+
 # loop over the image paths
 for (i, imagePath) in enumerate(imagePaths):
 	# extract the person name from the image path
-	print("[INFO] processing image {}/{}".format(i + 1,
-		len(imagePaths)))
+	print("[INFO] processing image {}/{}".format(i + 1, len(imagePaths)))
 	name = imagePath.split(os.path.sep)[-2]
+
+	tmA = time.time()
 
 	# load the input image and convert it from RGB (OpenCV ordering)
 	# to dlib ordering (RGB)
 	image = cv2.imread(imagePath)
 	rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+	tmB = time.time()
+	tmElapsed = tmB - tmA
+	print("\tload image: {:.2f}".format(tmElapsed))
+	tmA = tmB
+
 	# detect the (x, y)-coordinates of the bounding boxes
 	# corresponding to each face in the input image
-	boxes = face_recognition.face_locations(rgb,
-		model=args["detection_method"])
+	boxes = face_recognition.face_locations(rgb, model=args["detection_method"])
+
+	tmB = time.time()
+	tmElapsed = tmB - tmA
+	print("\tdetect face: {:.2f}".format(tmElapsed))
+	tmA = tmB
 
 	# compute the facial embedding for the face
 	encodings = face_recognition.face_encodings(rgb, boxes)
+
+	tmB = time.time()
+	tmElapsed = tmB - tmA
+	print("\tencoding: {:.2f}".format(tmElapsed))
+	tmA = tmB
 
 	# loop over the encodings
 	for encoding in encodings:
@@ -54,9 +85,17 @@ for (i, imagePath) in enumerate(imagePaths):
 		knownEncodings.append(encoding)
 		knownNames.append(name)
 
+
+print("Processing time elapsed: {:.2f}".format(time.time()-tmStart))
+tmStart = time.time()
+
 # dump the facial encodings + names to disk
 print("[INFO] serializing encodings...")
 data = {"encodings": knownEncodings, "names": knownNames}
 f = open(args["encodings"], "wb")
 f.write(pickle.dumps(data))
 f.close()
+
+print("Serializing elapsed: {:.2f}".format(time.time()-tmStart))
+tmStart = time.time()
+

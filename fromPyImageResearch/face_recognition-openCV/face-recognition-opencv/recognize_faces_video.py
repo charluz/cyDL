@@ -11,21 +11,51 @@ import pickle
 import time
 import cv2
 
+#import cy_packages.time_stamp as TS  <-- use tmProc = TS.TimeStamp()
+from cy_packages.time_stamp import TimeStamp
+
+
+#-------------------------------------------------------------
+# MainEntry
+#-------------------------------------------------------------
+
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-e", "--encodings", required=True,
 	help="path to serialized db of facial encodings")
+
 ap.add_argument("-o", "--output", type=str,
 	help="path to output video")
+
 ap.add_argument("-y", "--display", type=int, default=1,
 	help="whether or not to display output frame to screen")
-ap.add_argument("-d", "--detection-method", type=str, default="cnn",
+
+ap.add_argument("-d", "--detection-method", type=str, default="hog",
 	help="face detection model to use: either `hog` or `cnn`")
+
+ap.add_argument("-t", "--time", nargs='?', const=1, type=int, default=1,
+	help="enable/disable elasped time message")
+
 args = vars(ap.parse_args())
+
+#-- Debug Only: input arguments
+if True:
+	print("args[\"time\"]= ", args["time"])
+
+#-- Initiate time stamp
+tmProc = TimeStamp(enable=args["time"]>0)
+
+#-- time stamp: Process start ...
+tmProc.ProcStart()
 
 # load the known faces and embeddings
 print("[INFO] loading encodings...")
+
+tmProc.SubStart()
+
 data = pickle.loads(open(args["encodings"], "rb").read())
+
+tmProc.SubEnd("loading encodings")
 
 # initialize the video stream and pointer to output video file, then
 # allow the camera sensor to warm up
@@ -33,34 +63,44 @@ print("[INFO] starting video stream...")
 vs = VideoStream(src=0).start()
 writer = None
 time.sleep(2.0)
+print("[INFO] video stream is ready...")
 
 # loop over frames from the video file stream
 while True:
+
+	tmProc.SubStart()
+
 	# grab the frame from the threaded video stream
 	frame = vs.read()
-	
+
 	# convert the input frame from BGR to RGB then resize it to have
 	# a width of 750px (to speedup processing)
 	rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 	rgb = imutils.resize(frame, width=750)
 	r = frame.shape[1] / float(rgb.shape[1])
 
+	tmProc.SubEnd("reading one frame")
+
 	# detect the (x, y)-coordinates of the bounding boxes
 	# corresponding to each face in the input frame, then compute
 	# the facial embeddings for each face
-	boxes = face_recognition.face_locations(rgb,
-		model=args["detection_method"])
+	boxes = face_recognition.face_locations(rgb, model=args["detection_method"])
+	tmProc.SubEnd("finding all faces")
+
 	encodings = face_recognition.face_encodings(rgb, boxes)
+	tmProc.SubEnd("encoding all faces")
+
 	names = []
 
 	# loop over the facial embeddings
 	for encoding in encodings:
 		# attempt to match each face in the input image to our known
 		# encodings
-		matches = face_recognition.compare_faces(data["encodings"],
-			encoding)
+		matches = face_recognition.compare_faces(data["encodings"], encoding)
+		print("Length of matches: ", len(matches))
 		name = "Unknown"
 
+		tmProc.SubEnd("matching found face")
 		# check to see if we have found a match
 		if True in matches:
 			# find the indexes of all matched faces then initialize a
@@ -79,9 +119,11 @@ while True:
 			# of votes (note: in the event of an unlikely tie Python
 			# will select first entry in the dictionary)
 			name = max(counts, key=counts.get)
-		
+
 		# update the list of names
 		names.append(name)
+
+		tmProc.SubEnd("enrolling face")
 
 	# loop over the recognized faces
 	for ((top, right, bottom, left), name) in zip(boxes, names):
